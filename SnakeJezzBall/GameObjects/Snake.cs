@@ -22,12 +22,6 @@ namespace SnakeJezzBall.GameObjects
         public bool isInWallMode = false;
         public Coordinates? lastWallCreated { get; private set; } = null;
 
-
-
-        // Pour les collisions et debug
-        //public IEnumerable<Coordinates> Body => body;
-        //public int Length => body.Count;
-
         public Snake(Coordinates start, int startSize = 3)
         {
             gridManager = ServiceLocator.Get<IGridManager>();
@@ -137,11 +131,6 @@ namespace SnakeJezzBall.GameObjects
             // (sera déplacé au prochain Move())
             body.Enqueue(head);
         }
-
-        /*public bool IsPositionOccupied(Coordinates position)
-        {
-            return body.Contains(position);
-        }*/
         public void EnterWallMode()
         {
             isInWallMode = true;
