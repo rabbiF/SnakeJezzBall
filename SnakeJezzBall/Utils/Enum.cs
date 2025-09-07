@@ -15,4 +15,38 @@
         Self,
         Apple
     }
+
+    public enum SnakeState
+    {
+        Normal,        // Mouvement classique
+        WallBuilding,  // Création de murs
+        Stunned,       // Temporairement immobilisé (si pomme spéciale)
+        Invincible     // Mode temporaire d'invincibilité
+    }
+
+    public enum CellType
+    {
+        Empty = 0,
+        Snake = 1,
+        Apple = 2,
+        Wall = 3,
+        TemporaryWall = 4  // Murs en construction
+    }
+
+    public enum GameState
+    {
+        Menu,
+        Playing,
+        Paused,
+        GameOver,
+        Victory
+    }
+
+    public enum Direction
+    {
+        Up,
+        Down,
+        Left,
+        Right
+    }
 }
