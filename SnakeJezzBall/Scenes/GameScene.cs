@@ -6,152 +6,187 @@ using SnakeJezzBall.Utils;
 using static GameConfig;
 using static Raylib_cs.Raylib;
 
-
 namespace SnakeJezzBall.Scenes
 {
     public class GameScene : Scene
     {
+        private IGridManager gridManager = null!;
+        private CollisionManager collisionManager = null!;
+        private Snake snake = null!;
+        private Apple apple = null!;
+        private List<Wall> walls = new List<Wall>();
 
-        private IGridManager gridManager;
-        private Snake snake;
-        private Apple apple;
         private bool gameOverLoaded = false;
         private int score = 0;
         private float gameTimeSeconds = 0f;
-        private List<Wall> walls = new List<Wall>();
+        private Coordinates startPosition;
+
         public GameScene()
         {
+            InitializeGame();
+        }
+
+
+        private void InitializeGame()
+        {
             gridManager = ServiceLocator.Get<IGridManager>();
+            collisionManager = new CollisionManager(gridManager, walls);
 
-            Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
-            snake = new Snake(startPosition, 3);
-            apple = new Apple(AppleType.Normal); 
+            startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
+            snake = new Snake(startPosition, collisionManager, INITIAL_SNAKE_LENGTH);
+            apple = new Apple(AppleType.Normal);
+
+            // Reset game state
+            score = 0;
+            gameTimeSeconds = 0f;
+            gameOverLoaded = false;
+            walls.Clear();
         }
+
         public override void Load()
-        {  
-
+        {
+            // Logique de chargement si nécessaire
         }
-
 
         public override void Update(float dt)
         {
             gameTimeSeconds += dt;
-            if(Apple.HasExpired((int)gameTimeSeconds))
+
+            // Gérer l'expiration des pommes
+            if (Apple.HasExpired((int)gameTimeSeconds))
             {
                 apple.Respawn();
                 gameTimeSeconds = 0f;
             }
-           
-            if (snake.isGameOver && !gameOverLoaded)
+
+            // Vérifier game over
+            if (snake.IsGameOver && !gameOverLoaded)
             {
-                GameOverScene.GameOverReason = snake.gameOverReason;
+                GameOverScene.GameOverReason = snake.GameOverReason;
                 ScenesManager.Load<GameOverScene>();
-                gameOverLoaded = true;               
+                gameOverLoaded = true;
                 return;
             }
-            else if (!snake.isGameOver)
+
+            if (!snake.IsGameOver)
             {
                 snake.Update(dt);
                 HandleInput();
+                HandleAppleCollision();
+            }
+        }
 
-                if (snake.lastWallCreated.HasValue)
-                {
-                    walls.Add(new Wall(snake.lastWallCreated.Value));
-                }
+        private void HandleAppleCollision()
+        {
+            if (snake.IsCollidingWithApple(apple))
+            {
+                // Appliquer les effets selon le type de pomme
+                ApplyAppleEffect(apple.type);
 
-                if (snake.IsCollidingWithApple(apple))
-                {
+                score += apple.points;
+                apple.Respawn();
+                gameTimeSeconds = 0f;
+            }
+        }
+
+        private void ApplyAppleEffect(AppleType appleType)
+        {
+            switch (appleType)
+            {
+                case AppleType.Normal:
                     snake.Grow();
-                    score += apple.points;
-                    switch (apple.type)
-                    {
-                        case AppleType.Normal:
-                            snake.Grow();
-                            break;
-                        case AppleType.Golden:
-                            snake.Grow();
-                            snake.Grow();
-                            break;
-                        case AppleType.Shrink:
-                            break;                  
-                    }
-            
-                    apple.Respawn();
-                    gameTimeSeconds = 0f;
-                }
-            }                
+                    break;
+                case AppleType.Golden:
+                    snake.Grow();
+                    snake.Grow(); // Double croissance
+                    break;
+                case AppleType.Shrink:
+                    // Pas de croissance mais on gagne quand même des points
+                    break;
+            }
         }
 
         public override void Draw()
         {
-           
             gridManager.Draw();
-            snake.Draw();
-            apple.Draw();
-            string scoreText = $"Score: {score}";
-            int scorePositionX = PositionTextX(scoreText, SIZE_FONT_H3);
-            DrawText(scoreText, scorePositionX, 0, SIZE_FONT_H3, DARK_GREEN);
-            string gamePad = "Déplacements : Z/S/Q/D";
-            DrawText(gamePad, 5, 0, SIZE_FONT_H3, DARK_GREEN);
 
-            string appleText = "Pommes : Rouge - 10 pts  / Or  - 50 pts / Bleue - 5 pts";
-            DrawText(appleText, 5, 20, SIZE_FONT_H3, DARK_GREEN);
-
+            // Dessiner les murs
             foreach (Wall wall in walls)
             {
                 wall.Draw();
             }
 
-            if (snake.isInWallMode)
+            snake.Draw();
+            apple.Draw();
+
+            DrawUI();
+        }
+
+        private void DrawUI()
+        {
+            // Score
+            string scoreText = $"Score: {score}";
+            int scorePositionX = PositionTextX(scoreText, SIZE_FONT_H3);
+            DrawText(scoreText, scorePositionX, 5, SIZE_FONT_H3, DARK_GREEN);
+
+            // Contrôles
+            DrawText("Déplacements : Z/S/Q/D", 5, 5, SIZE_FONT_H3, DARK_GREEN);
+            DrawText("Pommes : Rouge-10pts / Or-50pts / Bleue-5pts", 5, 25, SIZE_FONT_H3, DARK_GREEN);
+
+            // Mode mur
+            if (snake.IsInWallMode)
             {
-                DrawText("MODE MUR - ESPACE pour sortir", 5, SCREEN_HEIGHT - 30, 20, Color.Yellow);
+                DrawText("MODE MUR - ESPACE pour sortir", 5, SCREEN_HEIGHT - 50, 20, Color.Yellow);
             }
             else
             {
-                DrawText("ESPACE pour mode mur", 5, SCREEN_HEIGHT - 30, 20, Color.Gray);
+                DrawText("ESPACE pour mode mur", 5, SCREEN_HEIGHT - 50, 20, Color.Gray);
             }
 
-        } 
-
-        public override void Unload()
-        {     
+            DrawText("R pour recommencer", 5, SCREEN_HEIGHT - 25, 16, Color.Gray);
         }
-
-        public void InitializeGameObjects()
-        {
-            gridManager = ServiceLocator.Get<IGridManager>();
-
-            Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
-            snake = new Snake(startPosition, 3);
-            apple = new Apple(AppleType.Normal);
-        }
-
 
         private void HandleInput()
         {
-            if (IsKeyPressed(KeyboardKey.W))
+            // Mouvements
+            if (IsKeyPressed(KeyboardKey.W) || IsKeyPressed(KeyboardKey.Z))
                 snake.ChangeDirection(Coordinates.up);
             else if (IsKeyPressed(KeyboardKey.S))
                 snake.ChangeDirection(Coordinates.down);
-            else if (IsKeyPressed(KeyboardKey.A))
+            else if (IsKeyPressed(KeyboardKey.A) || IsKeyPressed(KeyboardKey.Q))
                 snake.ChangeDirection(Coordinates.left);
             else if (IsKeyPressed(KeyboardKey.D))
                 snake.ChangeDirection(Coordinates.right);
-            else if (IsKeyPressed(KeyboardKey.R) && snake.isGameOver)
-                InitializeGameObjects();
-            else if (IsKeyPressed(KeyboardKey.Space))            
-                if (snake.isInWallMode)
+
+            // Mode mur
+            else if (IsKeyPressed(KeyboardKey.Space))
+            {
+                if (snake.IsInWallMode)
                     snake.ExitWallMode();
                 else
-                    snake.EnterWallMode();            
+                    snake.EnterWallMode();
+            }
+
+            // Restart
+            else if (IsKeyPressed(KeyboardKey.R))
+            {
+                RestartGame();
+            }
+        }
+
+        private void RestartGame()
+        {
+            InitializeGame();
+        }
+
+        public override void Unload()
+        {
         }
 
         public override int PositionTextX(string text, int fontSize)
         {
-            int gameOverWidth = MeasureText(text, fontSize);
-            int gameOverX = (SCREEN_WIDTH - gameOverWidth) - 5;
-            return gameOverX;
+            int textWidth = MeasureText(text, fontSize);
+            return (SCREEN_WIDTH - textWidth) - 5;
         }
-
     }
 }

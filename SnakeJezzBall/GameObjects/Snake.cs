@@ -8,78 +8,83 @@ using static Raylib_cs.Raylib;
 
 namespace SnakeJezzBall.GameObjects
 {
-    public class Snake
+    public class Snake : GridObject
     {
-        private readonly IGridManager gridManager;
+        private readonly CollisionManager collisionManager;
         private Queue<Coordinates> body = new Queue<Coordinates>();
         private Coordinates direction = Coordinates.right;
-        private Coordinates nextDirection = Coordinates.right;        
+        private Coordinates nextDirection = Coordinates.right;
         private float moveTimer = 0f;
-        public bool isGameOver { get; private set; } = false;
-        public string gameOverReason { get; private set; } = "";
-        public Coordinates GetCurrentDirection() => direction;
-        public Coordinates head => body.Last();
-        public bool isInWallMode = false;
-        public Coordinates? lastWallCreated { get; private set; } = null;
 
-        public Snake(Coordinates start, int startSize = 3)
+        public bool IsGameOver { get; private set; } = false;
+        public string GameOverReason { get; private set; } = "";
+        public Coordinates Head => body.Last();
+        public IEnumerable<Coordinates> Body => body; // Expose pour les collisions
+        public bool IsInWallMode { get; private set; } = false;
+        public Coordinates? LastWallCreated { get; private set; } = null;
+
+        public Snake(Coordinates start, CollisionManager collisionManager, int startSize = 3)
         {
-            gridManager = ServiceLocator.Get<IGridManager>();
+            this.collisionManager = collisionManager;
+
             // Construction de la queue vers la tête
             for (int i = startSize - 1; i >= 0; i--)
             {
                 body.Enqueue(start - direction * i);
             }
-        }
+        }              
 
-        public void Update(float deltaTime)
-        {
-            moveTimer += deltaTime;
-
-            if (moveTimer >= SNAKE_MOVE_INTERVAL) 
-            {
-                Move();
-                moveTimer = 0f;
-            }
-        }
         public void Move()
         {
             direction = nextDirection;
-            Coordinates newHead = head + direction;
+            Coordinates newHead = Head + direction;
 
-            // Vérifier collision avec les murs
-            if (!gridManager.IsValidPosition(newHead))
+            // Utiliser le gestionnaire de collisions
+            var collisionResult = collisionManager.CheckSnakeMovement(this, newHead);
+            if (collisionResult.HasCollision)
             {
-                isGameOver = true;
-                gameOverReason = "Collision avec un mur !";
+                IsGameOver = true;
+                GameOverReason = collisionResult.Message;
                 return;
             }
 
-            // Vérifier collision avec soi-même AVANT de bouger
-            if (body.Contains(newHead))
-            {
-                isGameOver = true;
-                gameOverReason = "Collision avec soi-même !";
-                return;
-            }
-
-            if (isInWallMode && body.Count > 0)
-            {
-                lastWallCreated = body.Last(); // Position qu'on va quitter
-            }
-            else
-            {
-                lastWallCreated = null; // Pas de mur créé
-            }
-
+            // Gérer la création de murs
+            HandleWallCreation();
 
             // Mouvement normal
             body.Enqueue(newHead);
             body.Dequeue();
         }
 
-        public void Draw()
+        private void HandleWallCreation()
         {
+            if (IsInWallMode && body.Count > 0)
+            {
+                LastWallCreated = body.Last(); // Position qu'on va quitter
+                collisionManager.AddWall(LastWallCreated.Value);
+            }
+            else
+            {
+                LastWallCreated = null;
+            }
+        }
+
+        public override void Update(float dt)
+        {
+            if (IsGameOver) return;
+
+            moveTimer += dt;
+
+            if (moveTimer >= SNAKE_MOVE_INTERVAL)
+            {
+                Move();
+                moveTimer = 0f;
+            }
+        }
+
+        public override void Draw()
+        {
+            var gridManager = ServiceLocator.Get<IGridManager>();
             int segmentIndex = 0;
 
             foreach (Coordinates segment in body)
@@ -109,37 +114,50 @@ namespace SnakeJezzBall.GameObjects
 
         public void ChangeDirection(Coordinates newDirection)
         {
-            if (newDirection == -direction) return;
-            if (newDirection == Coordinates.zero) return;
+            // Empêcher les demi-tours
+            if (newDirection == -direction || newDirection == Coordinates.zero)
+                return;
 
             nextDirection = newDirection;
         }
 
-        public bool IsCollidingWithSelf()
-        {
-            return body.Count != body.Distinct().Count();
-        }
-
         public bool IsCollidingWithApple(Apple apple)
         {
-            return head == apple.coordinates;
+            return Head == apple.coordinates;
         }
 
         public void Grow()
         {
             // Ajouter un segment à la position actuelle de la tête
-            // (sera déplacé au prochain Move())
-            body.Enqueue(head);
+            body.Enqueue(Head);
         }
+
         public void EnterWallMode()
         {
-            isInWallMode = true;
-        }                    
-        
+            IsInWallMode = true;
+        }
 
         public void ExitWallMode()
         {
-            isInWallMode = false;
+            IsInWallMode = false;
+        }
+
+        public void Reset(Coordinates startPosition, int startSize = 3)
+        {
+            body.Clear();
+            direction = Coordinates.right;
+            nextDirection = Coordinates.right;
+            moveTimer = 0f;
+            IsGameOver = false;
+            GameOverReason = "";
+            IsInWallMode = false;
+            LastWallCreated = null;
+
+            // Reconstruire le corps
+            for (int i = startSize - 1; i >= 0; i--)
+            {
+                body.Enqueue(startPosition - direction * i);
+            }
         }
     }
 }

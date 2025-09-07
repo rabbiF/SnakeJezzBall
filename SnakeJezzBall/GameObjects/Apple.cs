@@ -8,7 +8,7 @@ using static Raylib_cs.Raylib;
 
 namespace SnakeJezzBall.GameObjects
 {
-    public class Apple
+    public class Apple : GridObject
     {
         public Coordinates coordinates { get; private set; }
         public AppleType type { get; private set; }
@@ -53,8 +53,12 @@ namespace SnakeJezzBall.GameObjects
         {
             return gridManager.IsValidPosition(coordinates);
         }
+        public override void Update(float dt)
+        {
 
-        public void Draw()
+        }
+
+        public override void Draw()
         {
 
             Vector2 worldPosition = gridManager.CoordinatesToWorld(coordinates);
@@ -104,11 +108,5 @@ namespace SnakeJezzBall.GameObjects
         {
             return gameTimeSeconds > APPLE_TIMER_LIMIT;
         }
-
-        // Vérifier collision avec le serpent
-        /*public bool IsCollidingWith(Snake snake)
-        {
-            return coordinates == snake.head;
-        }*/
     }
 }

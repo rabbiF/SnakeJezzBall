@@ -6,4 +6,13 @@
         Golden,    // +2 segment, bonus points  
         Shrink     // 0 segment, points
     }
+
+    public enum CollisionType
+    {
+        None,
+        Boundary,
+        Wall,
+        Self,
+        Apple
+    }
 }
