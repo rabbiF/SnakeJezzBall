@@ -45,7 +45,7 @@ namespace SnakeJezzBall.GameObjects
             // Générer position aléatoire valide et nouveau type
             do
             {
-                GridPosition = Coordinates.Random(gridManager.columns, gridManager.rows);
+                gridPosition = Coordinates.Random(gridManager.columns, gridManager.rows);
                 var chooseApple = random.Next(0, 3);
                 switch (chooseApple)
                 {
@@ -64,7 +64,7 @@ namespace SnakeJezzBall.GameObjects
             while (!IsValidSpawnPosition());
 
             // Mettre à jour la grille
-            gridManager.UpdateApplePosition(GridPosition);
+            gridManager.UpdateApplePosition(gridPosition);
 
             // Reset du timer
             lifetime = 0f;
@@ -75,12 +75,12 @@ namespace SnakeJezzBall.GameObjects
         // Éviter de spawn sur le serpent ou les murs
         private bool IsValidSpawnPosition()
         {
-            return gridManager.IsValidPosition(GridPosition);
+            return gridManager.IsValidPosition(gridPosition);
         }
 
         public override void Draw()
         {
-            Vector2 worldPosition = gridManager.CoordinatesToWorld(GridPosition);
+            Vector2 worldPosition = gridManager.CoordinatesToWorld(gridPosition);
             Vector2 center = worldPosition + new Vector2(CELL_SIZE * 0.5f, CELL_SIZE * 0.5f);
 
             Color appleColor = GetColorForType(type);
@@ -172,7 +172,7 @@ namespace SnakeJezzBall.GameObjects
             return gameTimeSeconds > APPLE_TIMER_LIMIT;
         }
 
-        public Coordinates coordinates => GridPosition;
+        public Coordinates coordinates => gridPosition;
 
         public void ApplyEffect(Snake snake)
         {

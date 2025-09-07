@@ -14,21 +14,21 @@ namespace SnakeJezzBall.GameObjects
 
         public Wall(Coordinates position)
         {
-            GridPosition = position;
+           gridPosition = position;
             gridManager = ServiceLocator.Get<IGridManager>();
 
             // Mettre à jour la grille pour marquer cette position comme mur
-            gridManager.SetCellType(GridPosition, CellType.Wall);
+            gridManager.SetCellType(gridPosition, CellType.Wall);
         }
 
         public override void Update(float dt)
         {
-            if (!IsActive) return;          
+            if (!isActive) return;          
         }
 
         public override void Draw()
         {
-            Vector2 worldPos = gridManager.CoordinatesToWorld(GridPosition);
+            Vector2 worldPos = gridManager.CoordinatesToWorld(gridPosition);
 
 
             Color wallColor = Color.Brown;     
@@ -45,6 +45,6 @@ namespace SnakeJezzBall.GameObjects
             );
         }
       
-        public Coordinates coordinates => GridPosition;
+        public Coordinates coordinates => gridPosition;
     }
 }

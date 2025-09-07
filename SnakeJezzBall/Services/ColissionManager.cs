@@ -55,7 +55,7 @@ namespace SnakeJezzBall.Services
 
         public bool HasWallAt(Coordinates position)
         {
-            return walls.Any(wall => wall.GridPosition == position);
+            return walls.Any(wall => wall.gridPosition == position);
         }
 
         public void AddWall(Coordinates position)

@@ -10,6 +10,8 @@ namespace SnakeJezzBall.Services
     {
         public int columns { get; private set; }
         public int rows { get; private set; }
+        public int Width { get; }
+        public int Height { get; }
         public readonly int cellSize;
         public Vector2 origin { get; private set; }
 

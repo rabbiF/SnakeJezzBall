@@ -5,11 +5,13 @@ namespace SnakeJezzBall.Services.Interfaces
 {
     public interface IGridManager
     {
-        // === PROPRIÉTÉS PRINCIPALES ===
+
         int columns { get; }
         int rows { get; }
+        int Width { get; }
+        int Height { get; }
 
-        // === MÉTHODES DE CONVERSION ===
+   
         Vector2 CoordinatesToWorld(Coordinates coords);
         Coordinates WorldToCoordinates(Vector2 worldPos);
 
