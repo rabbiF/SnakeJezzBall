@@ -23,9 +23,14 @@ namespace SnakeJezzBall.GameObjects
         public bool isGameOver { get; private set; } = false;
         public string gameOverReason { get; private set; } = "";
         public Coordinates head => body.Last();
-        public IEnumerable<Coordinates> Body => body; // Pour les collisions
+        public IEnumerable<Coordinates> Body => body;
         public bool isInWallMode => CurrentState == SnakeState.WallBuilding;
         public Coordinates? lastWallCreated { get; private set; } = null;
+
+        // === SYSTÈME DE CONSTRUCTION DE TERRITOIRES ===
+        private List<Coordinates> currentWallPath = new List<Coordinates>();
+        private bool isConstructing = false;
+        private Coordinates constructionStartPosition;
 
         public Snake(Coordinates start, int startSize = 3)
         {
@@ -60,20 +65,23 @@ namespace SnakeJezzBall.GameObjects
             switch (CurrentState)
             {
                 case SnakeState.Stunned:
-                    if (stateTimer >= 2f) // 2 secondes de stun
+                    if (stateTimer >= 2f)
                     {
                         ChangeState(SnakeState.Normal);
                     }
-                    return; // Pas de mouvement en mode stunned
+                    return;
 
                 case SnakeState.Invincible:
-                    if (stateTimer >= 5f) // 5 secondes d'invincibilité
+                    if (stateTimer >= 5f)
                     {
                         ChangeState(SnakeState.Normal);
                     }
                     break;
 
                 case SnakeState.WallBuilding:
+                    // En mode construction, mouvement plus lent et stratégique
+                    break;
+
                 case SnakeState.Normal:
                 default:
                     break;
@@ -82,8 +90,83 @@ namespace SnakeJezzBall.GameObjects
 
         public void ChangeState(SnakeState newState)
         {
+            // Transition spéciale pour le mode construction
+            if (CurrentState == SnakeState.WallBuilding && newState != SnakeState.WallBuilding)
+            {
+                ExitConstructionMode();
+            }
+            else if (newState == SnakeState.WallBuilding && CurrentState != SnakeState.WallBuilding)
+            {
+                EnterConstructionMode();
+            }
+
             CurrentState = newState;
             stateTimer = 0f;
+        }
+
+        private void EnterConstructionMode()
+        {
+            isConstructing = true;
+            constructionStartPosition = head;
+            currentWallPath.Clear();
+            currentWallPath.Add(head); // Ajouter la position de départ
+        }
+
+        private void ExitConstructionMode()
+        {
+            if (isConstructing && currentWallPath.Count > 1)
+            {
+                // Finaliser la construction du mur
+                CompleteTerritoryConstruction();
+            }
+
+            isConstructing = false;
+            currentWallPath.Clear();
+        }
+
+        private void CompleteTerritoryConstruction()
+        {
+            // Vérifier si le chemin forme une ligne droite vers un bord
+            // ou revient au point de départ (zone fermée)
+
+            if (IsPathToEdge(currentWallPath) || IsClosedPath(currentWallPath))
+            {
+                // Succès : tous les murs du chemin deviennent permanents
+                foreach (var wallPos in currentWallPath.Skip(1)) // Skip la position de départ
+                {
+                    lastWallCreated = wallPos; // Pour compatibility avec l'ancien système
+                    // Le GameScene se chargera d'ajouter au TerritoryManager
+                }
+            }
+            else
+            {
+                // Échec : pas de territoire créé
+                // Possibilité d'ajouter une pénalité ici
+            }
+        }
+
+        private bool IsPathToEdge(List<Coordinates> path)
+        {
+            if (path.Count < 2) return false;
+
+            var lastPos = path.Last();
+
+            // Vérifier si on a atteint un bord
+            return lastPos.column == 0 ||
+                   lastPos.column == gridManager.columns - 1 ||
+                   lastPos.row == 0 ||
+                   lastPos.row == gridManager.rows - 1;
+        }
+
+        private bool IsClosedPath(List<Coordinates> path)
+        {
+            if (path.Count < 4) return false; // Minimum pour une zone fermée
+
+            var start = path.First();
+            var end = path.Last();
+
+            // Vérifier si on est revenu au point de départ ou près
+            return Vector2.Distance(start.ToVector(), end.ToVector()) <= 1.5f;
         }
 
         public void Move()
@@ -93,9 +176,9 @@ namespace SnakeJezzBall.GameObjects
             direction = nextDirection;
             Coordinates newHead = head + direction;
 
-            gridPosition = newHead; // Mise à jour position GridObject
+            gridPosition = newHead;
 
-            // Vérifier collision avec les murs ou limites
+            // Vérifications de collision standard
             if (!gridManager.IsValidPosition(newHead))
             {
                 if (CurrentState != SnakeState.Invincible)
@@ -106,7 +189,6 @@ namespace SnakeJezzBall.GameObjects
                 }
             }
 
-            // Vérifier collision avec soi-même
             if (body.Contains(newHead) && CurrentState != SnakeState.Invincible)
             {
                 isGameOver = true;
@@ -114,11 +196,28 @@ namespace SnakeJezzBall.GameObjects
                 return;
             }
 
-            // Gérer la création de murs
-            if (CurrentState == SnakeState.WallBuilding && body.Count > 0)
+            // Gestion spéciale pour le mode construction
+            if (CurrentState == SnakeState.WallBuilding && isConstructing)
             {
-                lastWallCreated = body.Last(); // Position qu'on va quitter
-                gridManager.AddWall(lastWallCreated.Value);
+                // Ajouter la nouvelle position au chemin de construction
+                currentWallPath.Add(newHead);
+
+                // Vérifier si on a terminé la construction
+                if (IsPathToEdge(currentWallPath) || IsClosedPath(currentWallPath))
+                {
+                    CompleteTerritoryConstruction();
+                    ChangeState(SnakeState.Normal); // Sortir automatiquement du mode construction
+                }
+                else
+                {
+                    // Marquer temporairement cette position comme mur en construction
+                    lastWallCreated = body.Last(); // Position qu'on va quitter
+                }
+            }
+            else if (CurrentState == SnakeState.WallBuilding && !isConstructing)
+            {
+                // Mode mur simple (ancien système)
+                lastWallCreated = body.Last();
             }
             else
             {
@@ -142,7 +241,6 @@ namespace SnakeJezzBall.GameObjects
             {
                 Vector2 worldPos = gridManager.CoordinatesToWorld(segment);
 
-                // Dernière position = tête (plus claire)
                 bool isHead = (segmentIndex == body.Count - 1);
                 Color segmentColor = isHead ? GetHeadColor() : baseColor;
 
@@ -152,7 +250,6 @@ namespace SnakeJezzBall.GameObjects
                     segmentColor
                 );
 
-                // Contour pour plus de clarté
                 DrawRectangleLines(
                     (int)worldPos.X, (int)worldPos.Y,
                     CELL_SIZE, CELL_SIZE,
@@ -160,6 +257,35 @@ namespace SnakeJezzBall.GameObjects
                 );
 
                 segmentIndex++;
+            }
+
+            // Dessiner le chemin de construction en cours
+            if (isConstructing && currentWallPath.Count > 1)
+            {
+                DrawConstructionPath();
+            }
+        }
+
+        private void DrawConstructionPath()
+        {
+            for (int i = 1; i < currentWallPath.Count; i++) // Skip start position
+            {
+                Vector2 worldPos = gridManager.CoordinatesToWorld(currentWallPath[i]);
+
+                // Effet visuel de construction
+                Color constructionColor = new Color(255, 255, 0, 150); // Jaune transparente
+
+                DrawRectangle(
+                    (int)worldPos.X, (int)worldPos.Y,
+                    CELL_SIZE, CELL_SIZE,
+                    constructionColor
+                );
+
+                DrawRectangleLines(
+                    (int)worldPos.X, (int)worldPos.Y,
+                    CELL_SIZE, CELL_SIZE,
+                    Color.Yellow
+                );
             }
         }
 
@@ -184,6 +310,8 @@ namespace SnakeJezzBall.GameObjects
                 _ => Color.Lime
             };
         }
+
+        // === MÉTHODES PUBLIQUES (COMPATIBILITÉ) ===
 
         public Coordinates GetCurrentDirection() => direction;
 
@@ -222,7 +350,6 @@ namespace SnakeJezzBall.GameObjects
             ChangeState(SnakeState.Normal);
         }
 
-        // Nouvelles méthodes pour les effets spéciaux
         public void Stun(float duration = 2f)
         {
             ChangeState(SnakeState.Stunned);
@@ -235,13 +362,9 @@ namespace SnakeJezzBall.GameObjects
             stateTimer = 0f;
         }
 
-        // === FONCTIONS DE RESTART ===
         public void Reset(Coordinates startPosition, int startSize = 3)
         {
-            // Nettoyer l'état actuel
             body.Clear();
-
-            // Reset des variables d'état
             direction = Coordinates.right;
             nextDirection = Coordinates.right;
             moveTimer = 0f;
@@ -250,24 +373,45 @@ namespace SnakeJezzBall.GameObjects
             lastWallCreated = null;
             isActive = true;
 
-            // Reset de l'état de la machine à états
-            ChangeState(SnakeState.Normal);
+            // Reset système de construction
+            isConstructing = false;
+            currentWallPath.Clear();
 
-            // Mise à jour de la position dans GridObject
+            ChangeState(SnakeState.Normal);
             gridPosition = startPosition;
 
-            // Reconstruire le corps du serpent
             for (int i = startSize - 1; i >= 0; i--)
             {
                 body.Enqueue(startPosition - direction * i);
             }
 
-            // Mettre à jour la grille si nécessaire
             if (gridManager != null)
             {
                 gridManager.UpdateSnakePosition(body);
             }
-        }    
-   
+        }
+
+        public void QuickReset()
+        {
+            Reset(head, body.Count);
+        }
+
+        public void ResetWithOptions(Coordinates startPosition, bool preserveSize = false, bool preserveState = false)
+        {
+            int currentSize = preserveSize ? body.Count : INITIAL_SNAKE_LENGTH;
+            SnakeState currentState = preserveState ? CurrentState : SnakeState.Normal;
+
+            Reset(startPosition, currentSize);
+
+            if (preserveState)
+            {
+                ChangeState(currentState);
+            }
+        }
+
+        // === INFORMATIONS DE DEBUG POUR TERRITOIRES ===
+        public bool IsCurrentlyConstructing => isConstructing;
+        public List<Coordinates> GetCurrentConstructionPath() => new List<Coordinates>(currentWallPath);
+        public int GetConstructionProgress() => currentWallPath.Count;
     }
 }

@@ -49,4 +49,19 @@
         Left,
         Right
     }
+
+    public enum TerritoryState
+    {
+        Free,           // Zone libre
+        Walled,         // Zone avec murs
+        Conquered,      // Zone conquise/fermée
+        Contested       // Zone en cours de conquête
+    }
+
+    public enum WallType
+    {
+        Permanent,      // Mur permanent (bord de grille)
+        PlayerMade,     // Mur créé par le joueur
+        Temporary       // Mur temporaire (en construction)
+    }
 }

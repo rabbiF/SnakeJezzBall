@@ -12,18 +12,25 @@ namespace SnakeJezzBall.Scenes
     {
         // === VARIABLES PRINCIPALES ===
         private IGridManager gridManager;
+        private ITerritoryManager territoryManager;
         private Snake snake;
         private Apple apple;
         private bool gameOverLoaded = false;
         private int score = 0;
         private float gameTimeSeconds = 0f;
         private List<Wall> walls = new List<Wall>();
+        private List<Territory> territories = new List<Territory>();
 
-        // === CONSTRUCTEUR OPTIMISÉ ===
+        // === OBJECTIF JEZZBALL ===
+        private const float TARGET_PERCENTAGE = 0.75f; // 75% de territoire à capturer
+        private bool levelCompleted = false;
+
+        // === CONSTRUCTEUR ===
         public GameScene()
         {
             // Initialisation directe pour éviter les avertissements nullable
             gridManager = ServiceLocator.Get<IGridManager>();
+            territoryManager = ServiceLocator.Get<ITerritoryManager>();
             gridManager.ClearGrid();
 
             // Initialisation des objets de jeu
@@ -31,7 +38,10 @@ namespace SnakeJezzBall.Scenes
             snake = new Snake(startPosition, INITIAL_SNAKE_LENGTH);
             apple = new Apple(AppleType.Normal);
 
-            // Reset des variables de jeu
+            // S'abonner aux événements de territoire
+            territoryManager.OnZoneConquered += OnTerritoryConquered;
+            territoryManager.OnTerritoryPercentageChanged += OnTerritoryPercentageChanged;
+
             ResetGameState();
         }
 
@@ -45,13 +55,21 @@ namespace SnakeJezzBall.Scenes
         {
             gameTimeSeconds += dt;
 
-            // Mettre à jour la pomme avec sa nouvelle méthode Update
+            // Mettre à jour la pomme
             apple.Update(dt);
 
             if (Apple.HasExpired((int)gameTimeSeconds))
             {
                 apple.Respawn();
                 gameTimeSeconds = 0f;
+            }
+
+            // Vérifier victoire (75% de territoire capturé)
+            if (!levelCompleted && territoryManager.IsLevelObjectiveReached(TARGET_PERCENTAGE))
+            {
+                levelCompleted = true;
+                OnLevelCompleted();
+                return;
             }
 
             if (snake.isGameOver && !gameOverLoaded)
@@ -61,34 +79,45 @@ namespace SnakeJezzBall.Scenes
                 gameOverLoaded = true;
                 return;
             }
-            else if (!snake.isGameOver)
+            else if (!snake.isGameOver && !levelCompleted)
             {
                 snake.Update(dt);
                 HandleInput();
 
-                // Gérer les murs créés par le serpent (avec machine à états)
+                // Gérer les murs créés par le serpent ET les territoires
                 if (snake.lastWallCreated.HasValue)
                 {
-                    walls.Add(new Wall(snake.lastWallCreated.Value));
+                    var wallPos = snake.lastWallCreated.Value;
+                    walls.Add(new Wall(wallPos));
+                    territoryManager.AddWall(wallPos); // Ajouter au gestionnaire de territoire
                 }
 
                 if (snake.IsCollidingWithApple(apple))
                 {
-                    // Utiliser la nouvelle méthode ApplyEffect pour gérer automatiquement les effets
                     apple.ApplyEffect(snake);
                     score += apple.points;
+
+                    // Bonus territoire si applicable
+                    score += territoryManager.CalculateTerritoryBonus();
 
                     apple.Respawn();
                     gameTimeSeconds = 0f;
                 }
+
+                // Mettre à jour les territoires
+                UpdateTerritories(dt);
             }
         }
 
         public override void Draw()
         {
             gridManager.Draw();
-            snake.Draw();
-            apple.Draw();
+
+            // Dessiner les territoires en premier (fond)
+            foreach (var territory in territories)
+            {
+                territory.Draw();
+            }
 
             // Dessiner les murs
             foreach (Wall wall in walls)
@@ -96,13 +125,18 @@ namespace SnakeJezzBall.Scenes
                 wall.Draw();
             }
 
-            // Interface utilisateur améliorée
+            snake.Draw();
+            apple.Draw();
+
+            // Interface utilisateur avec info territoire
             DrawUI();
         }
 
         public override void Unload()
         {
-            // Nettoyage si nécessaire
+            // Se désabonner des événements
+            territoryManager.OnZoneConquered -= OnTerritoryConquered;
+            territoryManager.OnTerritoryPercentageChanged -= OnTerritoryPercentageChanged;
         }
 
         public override int PositionTextX(string text, int fontSize)
@@ -111,7 +145,7 @@ namespace SnakeJezzBall.Scenes
             return (SCREEN_WIDTH - textWidth) - 5;
         }
 
-        // === INTERFACE UTILISATEUR ===
+        // === INTERFACE UTILISATEUR AVEC TERRITOIRES ===
         private void DrawUI()
         {
             // Score en haut à droite
@@ -123,11 +157,20 @@ namespace SnakeJezzBall.Scenes
             DrawText("Déplacements : Z/S/Q/D", 5, 5, SIZE_FONT_H3, DARK_GREEN);
             DrawText("Pommes : Rouge-10pts / Or-50pts / Bleue-5pts", 5, 25, SIZE_FONT_H3, DARK_GREEN);
 
-            // Indicateur de mode selon l'état du serpent (machine à états)
+            // === INFORMATIONS TERRITOIRE (JEZZBALL) ===
+            float percentage = territoryManager.ConqueredPercentage * 100f;
+            string territoryText = $"Territoire: {percentage:F1}% / {TARGET_PERCENTAGE * 100}%";
+            DrawText(territoryText, 5, 45, SIZE_FONT_H3, Color.Blue);
+
+            // Barre de progression du territoire
+            DrawTerritoryProgressBar();
+
+            // Indicateur de mode selon l'état du serpent
             switch (snake.CurrentState)
             {
                 case SnakeState.WallBuilding:
-                    DrawText("MODE MUR - ESPACE pour sortir", 5, SCREEN_HEIGHT - 50, 20, Color.Yellow);
+                    DrawText("MODE CONSTRUCTION - ESPACE pour sortir", 5, SCREEN_HEIGHT - 70, 18, Color.Yellow);
+                    DrawText("Créez des murs pour enfermer des zones !", 5, SCREEN_HEIGHT - 50, 16, Color.Orange);
                     break;
                 case SnakeState.Stunned:
                     DrawText("ÉTOURDI - Attendez...", 5, SCREEN_HEIGHT - 50, 20, Color.Red);
@@ -136,18 +179,52 @@ namespace SnakeJezzBall.Scenes
                     DrawText("INVINCIBLE !", 5, SCREEN_HEIGHT - 50, 20, Color.Gold);
                     break;
                 default:
-                    DrawText("ESPACE pour mode mur", 5, SCREEN_HEIGHT - 50, 20, Color.Gray);
+                    DrawText("ESPACE pour mode construction", 5, SCREEN_HEIGHT - 50, 18, Color.Gray);
                     break;
             }
 
-            // Contrôles de restart simplifiés
-            DrawText("R pour recommencer", 5, SCREEN_HEIGHT - 25, 16, Color.Gray);
+            // Objectif du niveau
+            if (!levelCompleted)
+            {
+                DrawText("Objectif: Capturez 75% du territoire !", 5, SCREEN_HEIGHT - 25, 16, Color.Green);
+            }
+            else
+            {
+                DrawText("NIVEAU TERMINÉ ! Appuyez sur N pour continuer", 5, SCREEN_HEIGHT - 25, 16, Color.Lime);
+            }
         }
 
-        // === GESTION DES ENTRÉES AMÉLIORÉE ===
+        private void DrawTerritoryProgressBar()
+        {
+            // Barre de progression pour le territoire
+            int barX = 200;
+            int barY = 45;
+            int barWidth = 200;
+            int barHeight = 16;
+
+            float percentage = territoryManager.ConqueredPercentage;
+            float targetPercentage = TARGET_PERCENTAGE;
+
+            // Fond de la barre
+            DrawRectangle(barX, barY, barWidth, barHeight, Color.DarkGray);
+
+            // Progression actuelle
+            int progressWidth = (int)(barWidth * percentage);
+            Color progressColor = percentage >= targetPercentage ? Color.Green : Color.Blue;
+            DrawRectangle(barX, barY, progressWidth, barHeight, progressColor);
+
+            // Ligne d'objectif
+            int targetX = barX + (int)(barWidth * targetPercentage);
+            DrawLine(targetX, barY, targetX, barY + barHeight, Color.Red);
+
+            // Contour
+            DrawRectangleLines(barX, barY, barWidth, barHeight, Color.Black);
+        }
+
+        // === GESTION DES ENTRÉES ===
         private void HandleInput()
         {
-            // Touches de déplacement (support Z/Q/S/D français + W/A/S/D anglais)
+            // Touches de déplacement
             if (IsKeyPressed(KeyboardKey.W) || IsKeyPressed(KeyboardKey.Z))
                 snake.ChangeDirection(Coordinates.up);
             else if (IsKeyPressed(KeyboardKey.S))
@@ -157,7 +234,7 @@ namespace SnakeJezzBall.Scenes
             else if (IsKeyPressed(KeyboardKey.D))
                 snake.ChangeDirection(Coordinates.right);
 
-            // Mode mur avec machine à états
+            // Mode construction de murs (JezzBall)
             else if (IsKeyPressed(KeyboardKey.Space))
             {
                 if (snake.isInWallMode)
@@ -166,41 +243,97 @@ namespace SnakeJezzBall.Scenes
                     snake.EnterWallMode();
             }
 
-            // Restart simple mais optimisé
+            // Restart
             else if (IsKeyPressed(KeyboardKey.R))
             {
                 RestartGame();
             }
+
+            // Niveau suivant (si terminé)
+            else if (IsKeyPressed(KeyboardKey.N) && levelCompleted)
+            {
+                NextLevel();
+            }
         }
 
-        // === FONCTIONS DE GESTION DU JEU  ===
-        // Reset seulement les variables d'état du jeu (score, timer, etc.)
-        // Garde les objets existants
+        // === GESTION DES TERRITOIRES ===
+        private void UpdateTerritories(float dt)
+        {
+            // Mettre à jour l'animation des territoires
+            foreach (var territory in territories)
+            {
+                territory.Update(dt);
+            }
+        }
+
+        private void OnTerritoryConquered(List<Coordinates> newZone)
+        {
+            // Créer un nouveau territoire visuel pour la zone conquise
+            var territory = new Territory(newZone, TerritoryState.Conquered);
+            territories.Add(territory);
+
+            // Bonus de score pour territoire conquis
+            int bonus = newZone.Count * 10; // 10 points par cellule conquise
+            score += bonus;
+
+        }
+
+        private void OnTerritoryPercentageChanged(float newPercentage)
+        {  
+            // Déclencher des effets visuels ou sonores
+        }
+
+        private void OnLevelCompleted()
+        {
+            // Bonus de fin de niveau
+            int levelBonus = (int)(territoryManager.ConqueredPercentage * 2000);
+            score += levelBonus;
+
+            // Arrêter le serpent
+            snake.ChangeState(SnakeState.Stunned);
+        }
+
+        // === FONCTIONS DE GESTION DU JEU ===
         private void ResetGameState()
         {
             score = 0;
             gameTimeSeconds = 0f;
             gameOverLoaded = false;
+            levelCompleted = false;
             walls.Clear();
+            territories.Clear();
+            territoryManager.ClearAll();
         }
 
-        // Restart du jeu optimisé - utilise Snake.Reset() au lieu de recréer
         private void RestartGame()
         {
-            // Nettoyer la grille
             gridManager.ClearGrid();
 
-            // Reset optimisé du serpent (plus efficace que new Snake())
             Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
             snake.Reset(startPosition, INITIAL_SNAKE_LENGTH);
-
-            // Nouvelle pomme (légère à recréer)
             apple = new Apple(AppleType.Normal);
 
-            // Reset l'état du jeu
             ResetGameState();
         }
 
+        private void NextLevel()
+        {
+            // Garder le score, recommencer avec plus de difficulté
+            gridManager.ClearGrid();
+
+            Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
+            snake.Reset(startPosition, INITIAL_SNAKE_LENGTH);
+            apple = new Apple(AppleType.Normal);
+
+            // Reset seulement le territoire et l'état du niveau
+            gameTimeSeconds = 0f;
+            gameOverLoaded = false;
+            levelCompleted = false;
+            walls.Clear();
+            territories.Clear();
+            territoryManager.ClearAll();
+
+        }
 
         public void InitializeGameObjects()
         {

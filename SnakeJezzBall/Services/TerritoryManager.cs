@@ -3,7 +3,6 @@ using SnakeJezzBall.Utils;
 
 namespace SnakeJezzBall.Services
 {
-    // Gestionnaire des territoires conquis par le joueur via la création de murs
     public class TerritoryManager : ITerritoryManager
     {
         private readonly IGridManager gridManager;
@@ -11,124 +10,179 @@ namespace SnakeJezzBall.Services
         private readonly List<Coordinates> conqueredZones = new List<Coordinates>();
         private List<Coordinates> previousConqueredZones = new List<Coordinates>();
 
-        // Événements optionnels
+        // Événements
         public event Action<List<Coordinates>>? OnZoneConquered;
         public event Action<Coordinates>? OnWallAdded;
         public event Action<float>? OnTerritoryPercentageChanged;
 
-        public TerritoryManager()
-        {
-            gridManager = ServiceLocator.Get<IGridManager>();
-        }
-
-        #region Propriétés publiques
-
+        // Propriétés
         public List<Coordinates> ConqueredZones => new List<Coordinates>(conqueredZones);
-
-        public float ConqueredPercentage
-        {
-            get
-            {
-                int totalCells = gridManager.Width * gridManager.Height;
-                return totalCells > 0 ? conqueredZones.Count / (float)totalCells : 0f;
-            }
-        }
-
+        public float ConqueredPercentage => conqueredZones.Count / (float)(gridManager.columns * gridManager.rows);
         public int ConqueredCellCount => conqueredZones.Count;
+        public List<Coordinates> WallPositions => walls.ToList();
 
-        public List<Coordinates> WallPositions => new List<Coordinates>(walls);
-
-        #endregion
-
-        #region Gestion des murs
+        public TerritoryManager(IGridManager gridManager)
+        {
+            this.gridManager = gridManager;
+        }
 
         public void AddWall(Coordinates position)
         {
-            if (!gridManager.IsValidPosition(position))
-                return;
-
-            bool wasAdded = walls.Add(position);
-            if (wasAdded)
+            if (!gridManager.IsInBounds(position)) return;
+            
+            if (walls.Add(position))
             {
-                float oldPercentage = ConqueredPercentage;
-                RecalculateTerritory();
-
-                // Déclencher les événements
-                OnWallAdded?.Invoke(position);
-
-                float newPercentage = ConqueredPercentage;
-                if (Math.Abs(newPercentage - oldPercentage) > 0.001f)
+                // Utiliser SetCellType si disponible, sinon logique alternative
+                try 
                 {
-                    OnTerritoryPercentageChanged?.Invoke(newPercentage);
+                    gridManager.SetCellType(position, CellType.Wall);
                 }
+                catch (Exception)
+                {
+                    // Si SetCellType n'existe pas, utiliser une logique alternative
+                    // ou simplement tracker les murs dans notre HashSet
+                }
+                
+                OnWallAdded?.Invoke(position);
+                RecalculateTerritories();
             }
         }
 
         public bool RemoveWall(Coordinates position)
         {
-            bool wasRemoved = walls.Remove(position);
-            if (wasRemoved)
+            if (walls.Remove(position))
             {
-                float oldPercentage = ConqueredPercentage;
-                RecalculateTerritory();
-
-                float newPercentage = ConqueredPercentage;
-                if (Math.Abs(newPercentage - oldPercentage) > 0.001f)
-                {
-                    OnTerritoryPercentageChanged?.Invoke(newPercentage);
-                }
+                gridManager.SetCellType(position, CellType.Empty);
+                RecalculateTerritories();
+                return true;
             }
-            return wasRemoved;
+            return false;
         }
 
-        public bool IsWallAt(Coordinates position)
+        public void RecalculateTerritories()
         {
-            return walls.Contains(position);
-        }
+            previousConqueredZones = new List<Coordinates>(conqueredZones);
+            conqueredZones.Clear();
 
-        #endregion
+            // Marquer toutes les cellules comme non visitées
+            var visited = new bool[gridManager.columns, gridManager.rows];
 
-        #region Gestion des territoires
-
-        public bool IsPositionConquered(Coordinates position)
-        {
-            return conqueredZones.Contains(position);
-        }
-
-        public List<Coordinates> GetNewlyClosedZones()
-        {
-            var newZones = conqueredZones.Except(previousConqueredZones).ToList();
-            return newZones;
-        }
-
-        public List<Coordinates> GetFreePositions()
-        {
-            var freePositions = new List<Coordinates>();
-
-            for (int x = 0; x < gridManager.Width; x++)
+            // Algorithme de flood-fill pour détecter les zones fermées
+            for (int col = 0; col < gridManager.columns; col++)
             {
-                for (int y = 0; y < gridManager.Height; y++)
+                for (int row = 0; row < gridManager.rows; row++)
                 {
-                    var pos = new Coordinates(x, y);
+                    var coords = new Coordinates(col, row);
 
-                    // Position libre = pas de mur ET pas conquise
-                    if (!walls.Contains(pos) && !conqueredZones.Contains(pos))
+                    if (!visited[col, row] && CanBeConquered(coords))
                     {
-                        freePositions.Add(pos);
+                        var zone = FloodFillZone(coords, visited);
+                        if (IsZoneClosed(zone))
+                        {
+                            foreach (var cell in zone)
+                            {
+                                conqueredZones.Add(cell);
+                                gridManager.SetCellType(cell, CellType.Wall); // Marquer comme territoire
+                            }
+                        }
                     }
                 }
             }
 
-            return freePositions;
+            // Déclencher événements si changements
+            if (conqueredZones.Count != previousConqueredZones.Count)
+            {
+                var newZones = conqueredZones.Except(previousConqueredZones).ToList();
+                if (newZones.Count > 0)
+                {
+                    OnZoneConquered?.Invoke(newZones);
+                }
+                OnTerritoryPercentageChanged?.Invoke(ConqueredPercentage);
+            }
         }
 
-        #endregion
-
-        #region Calculs et objectifs
-
-        public int CalculateTerritoryBonus(int baseMultiplier = 1000)
+        private bool CanBeConquered(Coordinates position)
         {
-            return (int)(ConqueredPercentage * baseMultiplier);
+            // Ne peut pas conquérir les murs, le serpent, ou les zones déjà conquises
+            var cellType = gridManager.GetCellType(position);
+            return cellType == CellType.Empty || cellType == CellType.Apple;
+        }
+
+        private List<Coordinates> FloodFillZone(Coordinates start, bool[,] visited)
+        {
+            var zone = new List<Coordinates>();
+            var queue = new Queue<Coordinates>();
+            queue.Enqueue(start);
+
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+
+                if (!gridManager.IsInBounds(current) ||
+                    visited[current.column, current.row] ||
+                    !CanBeConquered(current))
+                {
+                    continue;
+                }
+
+                visited[current.column, current.row] = true;
+                zone.Add(current);
+
+                // Ajouter les voisins
+                var neighbors = new[]
+                {
+                    current + Coordinates.up,
+                    current + Coordinates.down,
+                    current + Coordinates.left,
+                    current + Coordinates.right
+                };
+
+                foreach (var neighbor in neighbors)
+                {
+                    queue.Enqueue(neighbor);
+                }
+            }
+
+            return zone;
+        }
+
+        private bool IsZoneClosed(List<Coordinates> zone)
+        {
+            // Une zone est fermée si elle ne touche aucun bord de la grille
+            foreach (var cell in zone)
+            {
+                if (cell.column == 0 || cell.column == gridManager.columns - 1 ||
+                    cell.row == 0 || cell.row == gridManager.rows - 1)
+                {
+                    return false; // Zone touche un bord
+                }
+            }
+            return true;
+        }
+
+        public void ClearAll()
+        {
+            walls.Clear();
+            conqueredZones.Clear();
+
+            // Nettoyer la grille
+            for (int col = 0; col < gridManager.columns; col++)
+            {
+                for (int row = 0; row < gridManager.rows; row++)
+                {
+                    var coords = new Coordinates(col, row);
+                    if (gridManager.GetCellType(coords) == CellType.Wall)
+                    {
+                        gridManager.SetCellType(coords, CellType.Empty);
+                    }
+                }
+            }
+        }
+
+        public int CalculateTerritoryBonus()
+        {
+            // Bonus basé sur le pourcentage de territoire conquis
+            return (int)(ConqueredPercentage * 1000);
         }
 
         public bool IsLevelObjectiveReached(float targetPercentage = 0.75f)
@@ -136,110 +190,27 @@ namespace SnakeJezzBall.Services
             return ConqueredPercentage >= targetPercentage;
         }
 
-        #endregion
-
-        #region Gestion globale
-
-        public void ClearAllTerritory()
+        public List<Coordinates> GetFreePositions()
         {
-            walls.Clear();
-            conqueredZones.Clear();
-            previousConqueredZones.Clear();
+            var freePositions = new List<Coordinates>();
 
-            OnTerritoryPercentageChanged?.Invoke(0f);
-        }
-
-        // Recalcule tous les territoires conquis en utilisant l'algorithme FloodFill     
-        private void RecalculateTerritory()
-        {
-            // Sauvegarder l'état précédent pour détecter les nouvelles zones
-            previousConqueredZones = new List<Coordinates>(conqueredZones);
-            conqueredZones.Clear();
-
-            // Créer un HashSet des positions déjà vérifiées pour optimiser
-            var alreadyChecked = new HashSet<Coordinates>();
-
-            // Parcourir toute la grille pour trouver les zones fermées
-            for (int x = 0; x < gridManager.Width; x++)
+            for (int col = 0; col < gridManager.columns; col++)
             {
-                for (int y = 0; y < gridManager.Height; y++)
+                for (int row = 0; row < gridManager.rows; row++)
                 {
-                    var startPos = new Coordinates(x, y);
+                    var coords = new Coordinates(col, row);
+                    var cellType = gridManager.GetCellType(coords);
 
-                    // Ignorer si c'est un mur ou déjà vérifié
-                    if (walls.Contains(startPos) || alreadyChecked.Contains(startPos))
-                        continue;
-
-                    // Vérifier si cette zone est fermée
-                    if (IsZoneClosed(startPos))
+                    if (cellType == CellType.Empty &&
+                        !walls.Contains(coords) &&
+                        !conqueredZones.Contains(coords))
                     {
-                        // Récupérer toute la zone fermée
-                        var zone = FloodFill.Fill(
-                            startPos,
-                            gridManager.Width,
-                            gridManager.Height,
-                            pos => walls.Contains(pos)
-                        );
-
-                        // Ajouter toutes les positions de cette zone
-                        conqueredZones.AddRange(zone);
-
-                        // Marquer ces positions comme vérifiées
-                        foreach (var pos in zone)
-                        {
-                            alreadyChecked.Add(pos);
-                        }
-                    }
-                    else
-                    {
-                        // Zone ouverte, marquer comme vérifiée quand même
-                        var openZone = FloodFill.Fill(
-                            startPos,
-                            gridManager.Width,
-                            gridManager.Height,
-                            pos => walls.Contains(pos)
-                        );
-
-                        foreach (var pos in openZone)
-                        {
-                            alreadyChecked.Add(pos);
-                        }
+                        freePositions.Add(coords);
                     }
                 }
             }
 
-            // Détecter et signaler les nouvelles zones conquises
-            var newlyConquered = GetNewlyClosedZones();
-            if (newlyConquered.Count > 0)
-            {
-                OnZoneConquered?.Invoke(newlyConquered);
-            }
+            return freePositions;
         }
-
-        // Vérifie si une zone est fermée (entourée de murs)
-        private bool IsZoneClosed(Coordinates startPosition)
-        {
-            // Utiliser FloodFill pour obtenir toute la zone connectée
-            var zone = FloodFill.Fill(
-                startPosition,
-                gridManager.Width,
-                gridManager.Height,
-                pos => walls.Contains(pos)
-            );
-
-            // Vérifier si aucune position de la zone ne touche les bords de la grille
-            foreach (var pos in zone)
-            {
-                if (pos.column == 0 || pos.column == gridManager.Width - 1 ||
-                    pos.row == 0 || pos.row == gridManager.Height - 1)
-                {
-                    return false; // Zone ouverte (touche les bords)
-                }
-            }
-
-            return true; // Zone fermée
-        }
-
-        #endregion
     }
 }
