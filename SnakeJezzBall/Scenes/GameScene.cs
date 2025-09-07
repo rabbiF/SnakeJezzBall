@@ -10,39 +10,32 @@ namespace SnakeJezzBall.Scenes
 {
     public class GameScene : Scene
     {
-        private IGridManager gridManager = null!;
-        private CollisionManager collisionManager = null!;
-        private Snake snake = null!;
-        private Apple apple = null!;
-        private List<Wall> walls = new List<Wall>();
-
+        // === VARIABLES PRINCIPALES ===
+        private IGridManager gridManager;
+        private Snake snake;
+        private Apple apple;
         private bool gameOverLoaded = false;
         private int score = 0;
         private float gameTimeSeconds = 0f;
-        private Coordinates startPosition;
+        private List<Wall> walls = new List<Wall>();
 
+        // === CONSTRUCTEUR OPTIMISÉ ===
         public GameScene()
         {
-            InitializeGame();
-        }
-
-
-        private void InitializeGame()
-        {
+            // Initialisation directe pour éviter les avertissements nullable
             gridManager = ServiceLocator.Get<IGridManager>();
-            collisionManager = new CollisionManager(gridManager, walls);
+            gridManager.ClearGrid();
 
-            startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
-            snake = new Snake(startPosition, collisionManager, INITIAL_SNAKE_LENGTH);
+            // Initialisation des objets de jeu
+            Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
+            snake = new Snake(startPosition, INITIAL_SNAKE_LENGTH);
             apple = new Apple(AppleType.Normal);
 
-            // Reset game state
-            score = 0;
-            gameTimeSeconds = 0f;
-            gameOverLoaded = false;
-            walls.Clear();
+            // Reset des variables de jeu
+            ResetGameState();
         }
 
+        // === MÉTHODES SCENE OBLIGATOIRES ===
         public override void Load()
         {
             // Logique de chargement si nécessaire
@@ -52,63 +45,50 @@ namespace SnakeJezzBall.Scenes
         {
             gameTimeSeconds += dt;
 
-            // Gérer l'expiration des pommes
+            // Mettre à jour la pomme avec sa nouvelle méthode Update
+            apple.Update(dt);
+
             if (Apple.HasExpired((int)gameTimeSeconds))
             {
                 apple.Respawn();
                 gameTimeSeconds = 0f;
             }
 
-            // Vérifier game over
-            if (snake.IsGameOver && !gameOverLoaded)
+            if (snake.isGameOver && !gameOverLoaded)
             {
-                GameOverScene.GameOverReason = snake.GameOverReason;
+                GameOverScene.GameOverReason = snake.gameOverReason;
                 ScenesManager.Load<GameOverScene>();
                 gameOverLoaded = true;
                 return;
             }
-
-            if (!snake.IsGameOver)
+            else if (!snake.isGameOver)
             {
                 snake.Update(dt);
                 HandleInput();
-                HandleAppleCollision();
-            }
-        }
 
-        private void HandleAppleCollision()
-        {
-            if (snake.IsCollidingWithApple(apple))
-            {
-                // Appliquer les effets selon le type de pomme
-                ApplyAppleEffect(apple.type);
+                // Gérer les murs créés par le serpent (avec machine à états)
+                if (snake.lastWallCreated.HasValue)
+                {
+                    walls.Add(new Wall(snake.lastWallCreated.Value));
+                }
 
-                score += apple.points;
-                apple.Respawn();
-                gameTimeSeconds = 0f;
-            }
-        }
+                if (snake.IsCollidingWithApple(apple))
+                {
+                    // Utiliser la nouvelle méthode ApplyEffect pour gérer automatiquement les effets
+                    apple.ApplyEffect(snake);
+                    score += apple.points;
 
-        private void ApplyAppleEffect(AppleType appleType)
-        {
-            switch (appleType)
-            {
-                case AppleType.Normal:
-                    snake.Grow();
-                    break;
-                case AppleType.Golden:
-                    snake.Grow();
-                    snake.Grow(); // Double croissance
-                    break;
-                case AppleType.Shrink:
-                    // Pas de croissance mais on gagne quand même des points
-                    break;
+                    apple.Respawn();
+                    gameTimeSeconds = 0f;
+                }
             }
         }
 
         public override void Draw()
         {
             gridManager.Draw();
+            snake.Draw();
+            apple.Draw();
 
             // Dessiner les murs
             foreach (Wall wall in walls)
@@ -116,39 +96,58 @@ namespace SnakeJezzBall.Scenes
                 wall.Draw();
             }
 
-            snake.Draw();
-            apple.Draw();
-
+            // Interface utilisateur améliorée
             DrawUI();
         }
 
+        public override void Unload()
+        {
+            // Nettoyage si nécessaire
+        }
+
+        public override int PositionTextX(string text, int fontSize)
+        {
+            int textWidth = MeasureText(text, fontSize);
+            return (SCREEN_WIDTH - textWidth) - 5;
+        }
+
+        // === INTERFACE UTILISATEUR ===
         private void DrawUI()
         {
-            // Score
+            // Score en haut à droite
             string scoreText = $"Score: {score}";
             int scorePositionX = PositionTextX(scoreText, SIZE_FONT_H3);
             DrawText(scoreText, scorePositionX, 5, SIZE_FONT_H3, DARK_GREEN);
 
-            // Contrôles
+            // Contrôles en haut à gauche
             DrawText("Déplacements : Z/S/Q/D", 5, 5, SIZE_FONT_H3, DARK_GREEN);
             DrawText("Pommes : Rouge-10pts / Or-50pts / Bleue-5pts", 5, 25, SIZE_FONT_H3, DARK_GREEN);
 
-            // Mode mur
-            if (snake.IsInWallMode)
+            // Indicateur de mode selon l'état du serpent (machine à états)
+            switch (snake.CurrentState)
             {
-                DrawText("MODE MUR - ESPACE pour sortir", 5, SCREEN_HEIGHT - 50, 20, Color.Yellow);
-            }
-            else
-            {
-                DrawText("ESPACE pour mode mur", 5, SCREEN_HEIGHT - 50, 20, Color.Gray);
+                case SnakeState.WallBuilding:
+                    DrawText("MODE MUR - ESPACE pour sortir", 5, SCREEN_HEIGHT - 50, 20, Color.Yellow);
+                    break;
+                case SnakeState.Stunned:
+                    DrawText("ÉTOURDI - Attendez...", 5, SCREEN_HEIGHT - 50, 20, Color.Red);
+                    break;
+                case SnakeState.Invincible:
+                    DrawText("INVINCIBLE !", 5, SCREEN_HEIGHT - 50, 20, Color.Gold);
+                    break;
+                default:
+                    DrawText("ESPACE pour mode mur", 5, SCREEN_HEIGHT - 50, 20, Color.Gray);
+                    break;
             }
 
+            // Contrôles de restart simplifiés
             DrawText("R pour recommencer", 5, SCREEN_HEIGHT - 25, 16, Color.Gray);
         }
 
+        // === GESTION DES ENTRÉES AMÉLIORÉE ===
         private void HandleInput()
         {
-            // Mouvements
+            // Touches de déplacement (support Z/Q/S/D français + W/A/S/D anglais)
             if (IsKeyPressed(KeyboardKey.W) || IsKeyPressed(KeyboardKey.Z))
                 snake.ChangeDirection(Coordinates.up);
             else if (IsKeyPressed(KeyboardKey.S))
@@ -158,35 +157,54 @@ namespace SnakeJezzBall.Scenes
             else if (IsKeyPressed(KeyboardKey.D))
                 snake.ChangeDirection(Coordinates.right);
 
-            // Mode mur
+            // Mode mur avec machine à états
             else if (IsKeyPressed(KeyboardKey.Space))
             {
-                if (snake.IsInWallMode)
+                if (snake.isInWallMode)
                     snake.ExitWallMode();
                 else
                     snake.EnterWallMode();
             }
 
-            // Restart
+            // Restart simple mais optimisé
             else if (IsKeyPressed(KeyboardKey.R))
             {
                 RestartGame();
             }
         }
 
+        // === FONCTIONS DE GESTION DU JEU  ===
+        // Reset seulement les variables d'état du jeu (score, timer, etc.)
+        // Garde les objets existants
+        private void ResetGameState()
+        {
+            score = 0;
+            gameTimeSeconds = 0f;
+            gameOverLoaded = false;
+            walls.Clear();
+        }
+
+        // Restart du jeu optimisé - utilise Snake.Reset() au lieu de recréer
         private void RestartGame()
         {
-            InitializeGame();
+            // Nettoyer la grille
+            gridManager.ClearGrid();
+
+            // Reset optimisé du serpent (plus efficace que new Snake())
+            Coordinates startPosition = new Coordinates(GRID_WIDTH / 2, GRID_HEIGHT / 2);
+            snake.Reset(startPosition, INITIAL_SNAKE_LENGTH);
+
+            // Nouvelle pomme (légère à recréer)
+            apple = new Apple(AppleType.Normal);
+
+            // Reset l'état du jeu
+            ResetGameState();
         }
 
-        public override void Unload()
-        {
-        }
 
-        public override int PositionTextX(string text, int fontSize)
+        public void InitializeGameObjects()
         {
-            int textWidth = MeasureText(text, fontSize);
-            return (SCREEN_WIDTH - textWidth) - 5;
+            RestartGame();
         }
     }
 }

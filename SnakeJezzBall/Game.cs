@@ -7,7 +7,7 @@ using static GameConfig;
 using static Raylib_cs.Raylib;
 
 public class Game
-{    
+{
     public void Load()
     {
         InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, TITLE);
@@ -15,7 +15,7 @@ public class Game
 
         RegisterServices();
         ScenesManager.Load<MenuScene>();
-  
+
         while (!WindowShouldClose())
         {
             Update(GetFrameTime());
@@ -29,7 +29,6 @@ public class Game
         ScenesManager.Update(GetFrameTime());
     }
 
-
     public void Draw()
     {
         BeginDrawing();
@@ -42,10 +41,9 @@ public class Game
 
     private void RegisterServices()
     {
+        // Enregistrement du GridManager amélioré
         ServiceLocator.Register<IGridManager>(
-             new GridManager<bool>(GRID_WIDTH, GRID_HEIGHT, CELL_SIZE)
+             new GridManager(GRID_WIDTH, GRID_HEIGHT, CELL_SIZE)
         );
     }
-
-
 }

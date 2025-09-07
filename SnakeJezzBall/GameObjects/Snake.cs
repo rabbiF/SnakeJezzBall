@@ -10,71 +10,42 @@ namespace SnakeJezzBall.GameObjects
 {
     public class Snake : GridObject
     {
-        private readonly CollisionManager collisionManager;
+        private readonly IGridManager gridManager;
         private Queue<Coordinates> body = new Queue<Coordinates>();
         private Coordinates direction = Coordinates.right;
         private Coordinates nextDirection = Coordinates.right;
         private float moveTimer = 0f;
 
-        public bool IsGameOver { get; private set; } = false;
-        public string GameOverReason { get; private set; } = "";
-        public Coordinates Head => body.Last();
-        public IEnumerable<Coordinates> Body => body; // Expose pour les collisions
-        public bool IsInWallMode { get; private set; } = false;
-        public Coordinates? LastWallCreated { get; private set; } = null;
+        // Machine à états
+        public SnakeState CurrentState { get; private set; } = SnakeState.Normal;
+        private float stateTimer = 0f;
 
-        public Snake(Coordinates start, CollisionManager collisionManager, int startSize = 3)
+        public bool isGameOver { get; private set; } = false;
+        public string gameOverReason { get; private set; } = "";
+        public Coordinates head => body.Last();
+        public IEnumerable<Coordinates> Body => body; // Pour les collisions
+        public bool isInWallMode => CurrentState == SnakeState.WallBuilding;
+        public Coordinates? lastWallCreated { get; private set; } = null;
+
+        public Snake(Coordinates start, int startSize = 3)
         {
-            this.collisionManager = collisionManager;
+            gridManager = ServiceLocator.Get<IGridManager>();
+            GridPosition = start;
 
             // Construction de la queue vers la tête
             for (int i = startSize - 1; i >= 0; i--)
             {
                 body.Enqueue(start - direction * i);
             }
-        }              
-
-        public void Move()
-        {
-            direction = nextDirection;
-            Coordinates newHead = Head + direction;
-
-            // Utiliser le gestionnaire de collisions
-            var collisionResult = collisionManager.CheckSnakeMovement(this, newHead);
-            if (collisionResult.HasCollision)
-            {
-                IsGameOver = true;
-                GameOverReason = collisionResult.Message;
-                return;
-            }
-
-            // Gérer la création de murs
-            HandleWallCreation();
-
-            // Mouvement normal
-            body.Enqueue(newHead);
-            body.Dequeue();
         }
 
-        private void HandleWallCreation()
+        public override void Update(float deltaTime)
         {
-            if (IsInWallMode && body.Count > 0)
-            {
-                LastWallCreated = body.Last(); // Position qu'on va quitter
-                collisionManager.AddWall(LastWallCreated.Value);
-            }
-            else
-            {
-                LastWallCreated = null;
-            }
-        }
+            if (!IsActive || isGameOver) return;
 
-        public override void Update(float dt)
-        {
-            if (IsGameOver) return;
+            UpdateState(deltaTime);
 
-            moveTimer += dt;
-
+            moveTimer += deltaTime;
             if (moveTimer >= SNAKE_MOVE_INTERVAL)
             {
                 Move();
@@ -82,10 +53,90 @@ namespace SnakeJezzBall.GameObjects
             }
         }
 
+        private void UpdateState(float deltaTime)
+        {
+            stateTimer += deltaTime;
+
+            switch (CurrentState)
+            {
+                case SnakeState.Stunned:
+                    if (stateTimer >= 2f) // 2 secondes de stun
+                    {
+                        ChangeState(SnakeState.Normal);
+                    }
+                    return; // Pas de mouvement en mode stunned
+
+                case SnakeState.Invincible:
+                    if (stateTimer >= 5f) // 5 secondes d'invincibilité
+                    {
+                        ChangeState(SnakeState.Normal);
+                    }
+                    break;
+
+                case SnakeState.WallBuilding:
+                case SnakeState.Normal:
+                default:
+                    break;
+            }
+        }
+
+        public void ChangeState(SnakeState newState)
+        {
+            CurrentState = newState;
+            stateTimer = 0f;
+        }
+
+        public void Move()
+        {
+            if (CurrentState == SnakeState.Stunned) return;
+
+            direction = nextDirection;
+            Coordinates newHead = head + direction;
+
+            GridPosition = newHead; // Mise à jour position GridObject
+
+            // Vérifier collision avec les murs ou limites
+            if (!gridManager.IsValidPosition(newHead))
+            {
+                if (CurrentState != SnakeState.Invincible)
+                {
+                    isGameOver = true;
+                    gameOverReason = "Collision avec un obstacle !";
+                    return;
+                }
+            }
+
+            // Vérifier collision avec soi-même
+            if (body.Contains(newHead) && CurrentState != SnakeState.Invincible)
+            {
+                isGameOver = true;
+                gameOverReason = "Collision avec soi-même !";
+                return;
+            }
+
+            // Gérer la création de murs
+            if (CurrentState == SnakeState.WallBuilding && body.Count > 0)
+            {
+                lastWallCreated = body.Last(); // Position qu'on va quitter
+                gridManager.AddWall(lastWallCreated.Value);
+            }
+            else
+            {
+                lastWallCreated = null;
+            }
+
+            // Mouvement normal
+            body.Enqueue(newHead);
+            body.Dequeue();
+
+            // Mettre à jour la grille
+            gridManager.UpdateSnakePosition(body);
+        }
+
         public override void Draw()
         {
-            var gridManager = ServiceLocator.Get<IGridManager>();
             int segmentIndex = 0;
+            Color baseColor = GetSnakeColor();
 
             foreach (Coordinates segment in body)
             {
@@ -93,7 +144,7 @@ namespace SnakeJezzBall.GameObjects
 
                 // Dernière position = tête (plus claire)
                 bool isHead = (segmentIndex == body.Count - 1);
-                Color segmentColor = isHead ? Color.Lime : DARK_GREEN;
+                Color segmentColor = isHead ? GetHeadColor() : baseColor;
 
                 DrawRectangle(
                     (int)worldPos.X, (int)worldPos.Y,
@@ -112,52 +163,111 @@ namespace SnakeJezzBall.GameObjects
             }
         }
 
+        private Color GetSnakeColor()
+        {
+            return CurrentState switch
+            {
+                SnakeState.WallBuilding => Color.Orange,
+                SnakeState.Stunned => Color.Gray,
+                SnakeState.Invincible => Color.Gold,
+                _ => DARK_GREEN
+            };
+        }
+
+        private Color GetHeadColor()
+        {
+            return CurrentState switch
+            {
+                SnakeState.WallBuilding => Color.Yellow,
+                SnakeState.Stunned => Color.LightGray,
+                SnakeState.Invincible => Color.White,
+                _ => Color.Lime
+            };
+        }
+
+        public Coordinates GetCurrentDirection() => direction;
+
         public void ChangeDirection(Coordinates newDirection)
         {
-            // Empêcher les demi-tours
-            if (newDirection == -direction || newDirection == Coordinates.zero)
-                return;
+            if (CurrentState == SnakeState.Stunned) return;
+
+            if (newDirection == -direction) return;
+            if (newDirection == Coordinates.zero) return;
 
             nextDirection = newDirection;
         }
 
+        public bool IsCollidingWithSelf()
+        {
+            return body.Count != body.Distinct().Count();
+        }
+
         public bool IsCollidingWithApple(Apple apple)
         {
-            return Head == apple.coordinates;
+            return head == apple.coordinates;
         }
 
         public void Grow()
         {
-            // Ajouter un segment à la position actuelle de la tête
-            body.Enqueue(Head);
+            body.Enqueue(head);
         }
 
         public void EnterWallMode()
         {
-            IsInWallMode = true;
+            ChangeState(SnakeState.WallBuilding);
         }
 
         public void ExitWallMode()
         {
-            IsInWallMode = false;
+            ChangeState(SnakeState.Normal);
         }
 
+        // Nouvelles méthodes pour les effets spéciaux
+        public void Stun(float duration = 2f)
+        {
+            ChangeState(SnakeState.Stunned);
+            stateTimer = 0f;
+        }
+
+        public void MakeInvincible(float duration = 5f)
+        {
+            ChangeState(SnakeState.Invincible);
+            stateTimer = 0f;
+        }
+
+        // === FONCTIONS DE RESTART ===
         public void Reset(Coordinates startPosition, int startSize = 3)
         {
+            // Nettoyer l'état actuel
             body.Clear();
+
+            // Reset des variables d'état
             direction = Coordinates.right;
             nextDirection = Coordinates.right;
             moveTimer = 0f;
-            IsGameOver = false;
-            GameOverReason = "";
-            IsInWallMode = false;
-            LastWallCreated = null;
+            isGameOver = false;
+            gameOverReason = "";
+            lastWallCreated = null;
+            IsActive = true;
 
-            // Reconstruire le corps
+            // Reset de l'état de la machine à états
+            ChangeState(SnakeState.Normal);
+
+            // Mise à jour de la position dans GridObject
+            GridPosition = startPosition;
+
+            // Reconstruire le corps du serpent
             for (int i = startSize - 1; i >= 0; i--)
             {
                 body.Enqueue(startPosition - direction * i);
             }
-        }
+
+            // Mettre à jour la grille si nécessaire
+            if (gridManager != null)
+            {
+                gridManager.UpdateSnakePosition(body);
+            }
+        }    
+   
     }
 }
