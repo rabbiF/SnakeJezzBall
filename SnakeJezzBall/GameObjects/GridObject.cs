@@ -7,12 +7,12 @@ namespace SnakeJezzBall.GameObjects
 {
     public abstract class GridObject : GameObject
     {
-        public Coordinates GridPosition { get; set; }
+        public Coordinates gridPosition { get; set; }
 
-        protected Vector2 WorldPosition =>
-            ServiceLocator.Get<IGridManager>().CoordinatesToWorld(GridPosition);
+        protected Vector2 worldPosition =>
+            ServiceLocator.Get<IGridManager>().CoordinatesToWorld(gridPosition);
 
-        public abstract override void Update(float deltaTime);
+        public abstract override void Update(float dt);
         public abstract override void Draw();
     }
 }

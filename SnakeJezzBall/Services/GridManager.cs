@@ -11,7 +11,7 @@ namespace SnakeJezzBall.Services
         public int columns { get; private set; }
         public int rows { get; private set; }
         public readonly int cellSize;
-        public Vector2 Origin { get; private set; }
+        public Vector2 origin { get; private set; }
 
         private CellType[,] cells; // Remplace l'ancien TCell par CellType
 
@@ -24,7 +24,7 @@ namespace SnakeJezzBall.Services
             int gridPixelWidth = columns * cellSize;
             int gridPixelHeight = rows * cellSize;
 
-            Origin = new Vector2(
+            origin = new Vector2(
                 (GameConfig.SCREEN_WIDTH - gridPixelWidth) / 2,
                 (GameConfig.SCREEN_HEIGHT - gridPixelHeight) / 2
             );
@@ -35,12 +35,12 @@ namespace SnakeJezzBall.Services
 
         public Vector2 CoordinatesToWorld(Coordinates coords)
         {
-            return Origin + coords.ToVector() * cellSize;
+            return origin + coords.ToVector() * cellSize;
         }
 
         public Coordinates WorldToCoordinates(Vector2 worldPos)
         {
-            Vector2 gridPos = (worldPos - Origin) / cellSize;
+            Vector2 gridPos = (worldPos - origin) / cellSize;
             return new Coordinates((int)gridPos.X, (int)gridPos.Y);
         }
 

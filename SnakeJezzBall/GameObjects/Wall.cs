@@ -11,7 +11,6 @@ namespace SnakeJezzBall.GameObjects
     public class Wall : GridObject
     {
         private readonly IGridManager gridManager;
-        private float age = 0f; // Âge du mur pour des effets visuels
 
         public Wall(Coordinates position)
         {
@@ -31,19 +30,8 @@ namespace SnakeJezzBall.GameObjects
         {
             Vector2 worldPos = gridManager.CoordinatesToWorld(GridPosition);
 
-            // Couleur qui change légèrement avec l'âge pour un effet visuel
-            Color wallColor = Color.Brown;
-            if (age < 0.5f) // Animation lors de la création
-            {
-                float alpha = age / 0.5f;
-                wallColor = new Color(
-                    (int)(Color.Brown.R * alpha),
-                    (int)(Color.Brown.G * alpha),
-                    (int)(Color.Brown.B * alpha),
-                    255
-                );
-            }
 
+            Color wallColor = Color.Brown;     
             DrawRectangle(
                 (int)worldPos.X, (int)worldPos.Y,
                 CELL_SIZE, CELL_SIZE,

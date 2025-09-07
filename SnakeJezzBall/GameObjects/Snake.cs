@@ -30,7 +30,7 @@ namespace SnakeJezzBall.GameObjects
         public Snake(Coordinates start, int startSize = 3)
         {
             gridManager = ServiceLocator.Get<IGridManager>();
-            GridPosition = start;
+            gridPosition = start;
 
             // Construction de la queue vers la tête
             for (int i = startSize - 1; i >= 0; i--)
@@ -41,7 +41,7 @@ namespace SnakeJezzBall.GameObjects
 
         public override void Update(float deltaTime)
         {
-            if (!IsActive || isGameOver) return;
+            if (!isActive || isGameOver) return;
 
             UpdateState(deltaTime);
 
@@ -93,7 +93,7 @@ namespace SnakeJezzBall.GameObjects
             direction = nextDirection;
             Coordinates newHead = head + direction;
 
-            GridPosition = newHead; // Mise à jour position GridObject
+            gridPosition = newHead; // Mise à jour position GridObject
 
             // Vérifier collision avec les murs ou limites
             if (!gridManager.IsValidPosition(newHead))
@@ -248,13 +248,13 @@ namespace SnakeJezzBall.GameObjects
             isGameOver = false;
             gameOverReason = "";
             lastWallCreated = null;
-            IsActive = true;
+            isActive = true;
 
             // Reset de l'état de la machine à états
             ChangeState(SnakeState.Normal);
 
             // Mise à jour de la position dans GridObject
-            GridPosition = startPosition;
+            gridPosition = startPosition;
 
             // Reconstruire le corps du serpent
             for (int i = startSize - 1; i >= 0; i--)

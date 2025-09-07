@@ -26,12 +26,12 @@ namespace SnakeJezzBall.GameObjects
             Respawn();
         }
 
-        public override void Update(float deltaTime)
+        public override void Update(float dt)
         {
-            if (!IsActive) return;
+            if (!isActive) return;
 
-            lifetime += deltaTime;
-            pulseAnimation += deltaTime * 3f; // Animation de pulsation
+            lifetime += dt;
+            pulseAnimation += dt * 3f; // Animation de pulsation
 
             // Vérifier si la pomme a expiré
             if (HasExpired((int)lifetime))
@@ -69,7 +69,7 @@ namespace SnakeJezzBall.GameObjects
             // Reset du timer
             lifetime = 0f;
             pulseAnimation = 0f;
-            IsActive = true;
+            isActive = true;
         }
 
         // Éviter de spawn sur le serpent ou les murs

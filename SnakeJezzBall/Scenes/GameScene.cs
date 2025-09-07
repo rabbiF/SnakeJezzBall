@@ -56,7 +56,7 @@ namespace SnakeJezzBall.Scenes
 
             if (snake.isGameOver && !gameOverLoaded)
             {
-                GameOverScene.GameOverReason = snake.gameOverReason;
+                GameOverScene.gameOverReason = snake.gameOverReason;
                 ScenesManager.Load<GameOverScene>();
                 gameOverLoaded = true;
                 return;
